@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HVAC Field Visit Report Builder</title>
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <style>
+    :root{
+      --bg:#f1f5f9; --panel:#ffffff; --panel-soft:#f8fafc; --text:#0f172a; --muted:#475569;
+      --border:#cbd5e1; --input:#ffffff; --accent:#111827; --chip:#e2e8f0; --primary:#111827;
+      --primaryText:#ffffff; --cool:#2563eb; --heat:#ea580c; --good-bg:#ecfdf5; --good:#047857;
+      --warn-bg:#fffbeb; --warn:#b45309; --bad-bg:#fef2f2; --bad:#b91c1c;
+    }
+    .dark{
+      --bg:#020617; --panel:#0f172a; --panel-soft:#111827; --text:#f8fafc; --muted:#94a3b8;
+      --border:#334155; --input:#020617; --accent:#f8fafc; --chip:#1e293b; --primary:#f8fafc;
+      --primaryText:#0f172a; --cool:#60a5fa; --heat:#fb923c; --good-bg:#052e16; --good:#86efac;
+      --warn-bg:#451a03; --warn:#fcd34d; --bad-bg:#450a0a; --bad:#fca5a5;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .container{max-width:1400px;margin:0 auto;padding:16px}
+    .stack{display:grid;gap:16px}
+    .top-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:24px}
+    .left,.right{display:grid;gap:24px;align-content:start}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:22px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+    .card.soft{background:var(--panel-soft)}
+    .card-header{padding:20px 20px 0 20px}
+    .card-title{font-size:1.25rem;font-weight:700;display:flex;gap:10px;align-items:center}
+    .card-content{padding:20px}
+    .hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}
+    .hero h1{margin:0 0 6px 0;font-size:2rem}
+    .muted{color:var(--muted)}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}
+    .chip{background:var(--chip);border-radius:999px;padding:8px 12px;font-size:.9rem}
+    .btn{appearance:none;border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:14px;padding:11px 14px;font-weight:600;cursor:pointer}
+    .btn.primary{background:var(--primary);color:var(--primaryText);border-color:var(--primary)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .btn-row{display:flex;gap:12px;flex-wrap:wrap}
+    .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .grid-1{display:grid;gap:16px}
+    .field{display:grid;gap:8px}
+    .field label{font-size:.92rem;font-weight:600}
+    input, select, textarea{
+      width:100%; background:var(--input); color:var(--text); border:1px solid var(--border);
+      border-radius:14px; padding:12px 14px; font:inherit;
+    }
+    textarea{min-height:120px;resize:vertical}
+    .section-tag{font-size:.76rem;letter-spacing:.24em;font-weight:800}
+    .cool{color:var(--cool)} .heat{color:var(--heat)}
+    .subsection-head{padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:16px}
+    .status-msg{font-size:.95rem}
+    .score{font-size:3rem;font-weight:800}
+    .bar{height:12px;border-radius:999px;background:var(--chip);overflow:hidden}
+    .bar-fill{height:100%;background:var(--accent)}
+    .metric{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:16px}
+    .metric .label{font-size:.9rem;color:var(--muted)}
+    .metric .value{font-size:2rem;font-weight:800}
+    .metric .target{font-size:.8rem;color:var(--muted)}
+    .rating{display:inline-flex;margin-top:10px;padding:6px 10px;border-radius:999px;font-size:.8rem;font-weight:700;border:1px solid transparent}
+    .good{background:var(--good-bg);color:var(--good)}
+    .low{background:var(--warn-bg);color:var(--warn)}
+    .high{background:var(--bad-bg);color:var(--bad)}
+    .check{display:flex;justify-content:space-between;align-items:center;padding:14px;border:1px solid var(--border);border-radius:14px;cursor:pointer;background:var(--input)}
+    .check.done{background:var(--primary);color:var(--primaryText);border-color:var(--primary)}
+    .saved-item{background:var(--input);border:1px solid var(--border);border-radius:16px;padding:16px}
+    .small{font-size:.85rem}
+    .icon{width:18px;height:18px;display:inline-block}
+    .banner{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+    @media (max-width: 1100px){.top-grid{grid-template-columns:1fr}}
+    @media (max-width: 700px){.grid-2{grid-template-columns:1fr}.hero h1{font-size:1.5rem}.score{font-size:2.5rem}}
+  </style>
+</head>
+<body>
+  <div class="container stack" id="app"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script>
+    const STORAGE_KEY = "hvac-field-report-builder-v1";
+    const PREFS_KEY = "hvac-field-report-preferences-v1";
+
+    const targets = {
+      "R-32": { cooling: { deltaT: { min: 16, max: 22 } }, heating: { deltaT: { min: 50, max: 65 } } },
+      "R-454B": { cooling: { deltaT: { min: 16, max: 22 } }, heating: { deltaT: { min: 50, max: 65 } } },
+    };
+
+    const defaultReadingSet = {
+      status: "tested", outdoorTemp: "", indoorReturnTemp: "", indoorSupplyTemp: "",
+      suctionPressure: "", liquidPressure: "", suctionLineTemp: "", liquidLineTemp: "",
+      cfm: "", fanSpeed: "", staticPressure: ""
+    };
+
+    const defaultState = {
+      theme: "light",
+      companyName: "Your HVAC Company",
+      companyPhone: "(555) 555-0199",
+      customerName: "John Smith",
+      phone: "(555) 555-0142",
+      email: "johnsmith@email.com",
+      address: "123 Main St, Pleasant Hill, MO",
+      visitType: "new-install",
+      visitDate: new Date().toISOString().slice(0,10),
+      technician: "Ricky",
+      equipmentBrand: "Carrier",
+      equipmentModel: "48VG-A36",
+      equipmentSerial: "SN-238874",
+      thermostatModel: "Ecobee Lite",
+      filterSize: "16x25x1",
+      refrigerant: "R-454B",
+      cooling: {
+        ...defaultReadingSet, status: "tested", outdoorTemp: "95", indoorReturnTemp: "78",
+        indoorSupplyTemp: "58", suctionPressure: "125", liquidPressure: "360",
+        suctionLineTemp: "52", liquidLineTemp: "103", cfm: "1200", fanSpeed: "Cool Tap 3", staticPressure: "0.48"
+      },
+      heating: { ...defaultReadingSet, status: "na", fanSpeed: "Heat Tap 2" },
+      gasPressureLowFire: "1.8",
+      gasPressureHighFire: "3.5",
+      drainChecked: true,
+      condenserLevel: true,
+      electricalTight: true,
+      filterInstalled: true,
+      workPerformed: "",
+      issuesFound: "",
+      recommendations: "",
+      savedVisits: []
+    };
+
+    const defaultPreferences = {
+      technician: defaultState.technician,
+      companyName: defaultState.companyName,
+      companyPhone: defaultState.companyPhone,
+      theme: defaultState.theme
+    };
+
+    function loadState(){
+      try{
+        const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || "null");
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+        const parsedPrefs = prefs ? { ...defaultPreferences, ...prefs } : defaultPreferences;
+        const base = { ...defaultState, ...parsedPrefs };
+        return saved ? { ...base, ...saved } : base;
+      }catch(e){ return { ...defaultState }; }
+    }
+
+    let state = loadState();
+    let actionMessage = "";
+    let installPromptEvent = null;
+    let installDismissed = false;
+
+    function saveState(){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(PREFS_KEY, JSON.stringify({
+        technician: state.technician,
+        companyName: state.companyName,
+        companyPhone: state.companyPhone,
+        theme: state.theme
+      }));
+    }
+
+    function parseNum(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
+    function clampScore(v){ return Math.max(0, Math.min(100, Math.round(v))); }
+    function rangeText(r){ return `${r.min}–${r.max}`; }
+
+    function analyzeReadings(refrigerant, mode, readings){
+      if (!readings || readings.status !== "tested") return { deltaT: null, targets: targets[refrigerant][mode] };
+      const ret = parseNum(readings.indoorReturnTemp);
+      const sup = parseNum(readings.indoorSupplyTemp);
+      const deltaT = mode === "heating" ? sup - ret : ret - sup;
+      return { deltaT, targets: targets[refrigerant][mode] };
+    }
+
+    function getDeltaTRating(value, target){
+      if (value === null || value === undefined) return null;
+      if (value < target.min) return { status: "low", label: "Low Delta T" };
+      if (value > target.max) return { status: "high", label: "High Delta T" };
+      return { status: "good", label: "Good Delta T" };
+    }
+
+    function documentationScore(form){
+      const checks = [];
+      const addCheck = (v) => checks.push(Boolean(String(v ?? "").trim()));
+      const addReadingChecks = (readings, mode) => {
+        checks.push(Boolean(readings.status));
+        if (readings.status !== "tested") return;
+        addCheck(readings.outdoorTemp); addCheck(readings.indoorReturnTemp); addCheck(readings.indoorSupplyTemp);
+        addCheck(readings.cfm); addCheck(readings.fanSpeed); addCheck(readings.staticPressure);
+        if (mode === "cooling") {
+          addCheck(readings.suctionPressure); addCheck(readings.liquidPressure);
+          addCheck(readings.suctionLineTemp); addCheck(readings.liquidLineTemp);
+        }
+      };
+      addCheck(form.companyName); addCheck(form.companyPhone); addCheck(form.customerName); addCheck(form.phone);
+      addCheck(form.email); addCheck(form.address); addCheck(form.visitType); addCheck(form.visitDate);
+      addCheck(form.technician); addCheck(form.equipmentBrand); addCheck(form.equipmentModel);
+      addCheck(form.equipmentSerial); addCheck(form.thermostatModel); addCheck(form.filterSize);
+      addCheck(form.refrigerant); addCheck(form.gasPressureLowFire); addCheck(form.gasPressureHighFire);
+      checks.push(Boolean(form.drainChecked), Boolean(form.condenserLevel), Boolean(form.electricalTight), Boolean(form.filterInstalled));
+      addReadingChecks(form.cooling, "cooling"); addReadingChecks(form.heating, "heating");
+      const done = checks.filter(Boolean).length;
+      return checks.length ? clampScore((done / checks.length) * 100) : 0;
+    }
+
+    function updateField(key, value){ state[key] = value; saveState(); render(); }
+    function updateReadingField(section, key, value){ state[section][key] = value; saveState(); render(); }
+    function toggleField(key){ state[key] = !state[key]; saveState(); render(); }
+    function setMessage(msg){ actionMessage = msg; render(); }
+
+    function saveVisit(){
+      const score = documentationScore(state);
+      const visit = {
+        id: Date.now(),
+        customerName: state.customerName,
+        address: state.address,
+        visitDate: state.visitDate,
+        visitType: state.visitType,
+        equipmentModel: state.equipmentModel,
+        technician: state.technician,
+        score,
+        coolingStatus: state.cooling.status,
+        heatingStatus: state.heating.status,
+        coolingCfm: state.cooling.cfm,
+        heatingCfm: state.heating.cfm,
+        coolingFanSpeed: state.cooling.fanSpeed,
+        heatingFanSpeed: state.heating.fanSpeed
+      };
+      state.savedVisits = [visit, ...state.savedVisits].slice(0, 8);
+      saveState();
+      setMessage("Visit snapshot saved on this device.");
+    }
+
+    function clearSavedData(){
+      localStorage.removeItem(STORAGE_KEY);
+      const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || "null");
+      state = {
+        ...defaultState,
+        technician: prefs?.technician || defaultPreferences.technician,
+        companyName: prefs?.companyName || defaultPreferences.companyName,
+        companyPhone: prefs?.companyPhone || defaultPreferences.companyPhone,
+        theme: prefs?.theme || state.theme
+      };
+      saveState();
+      setMessage("Saved visit data cleared from this device.");
+    }
+
+    function clearRememberedDefaults(){
+      localStorage.removeItem(PREFS_KEY);
+      state.technician = defaultPreferences.technician;
+      state.companyName = defaultPreferences.companyName;
+      state.companyPhone = defaultPreferences.companyPhone;
+      saveState();
+      setMessage("Remembered company and technician defaults cleared.");
+    }
+
+    function escapeHtml(str){
+      return String(str ?? "").replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+    }
+
+    function readingBlock(label, sectionKey, readings, isCooling){
+      const heading = isCooling ? "COOLING" : "HEATING";
+      return `
+        <div class="card soft card-content">
+          <div class="subsection-head">
+            <div class="section-tag ${isCooling ? 'cool' : 'heat'}">${heading}</div>
+            <div style="font-size:1.1rem;font-weight:700;margin-top:6px">${escapeHtml(label)}</div>
+            <div class="muted small" style="margin-top:4px">${isCooling ? 'Cooling startup readings and airflow setup' : 'Heating startup readings and airflow setup'}</div>
+          </div>
+          <div class="grid-1">
+            ${selectField(`${heading} Status`, readings.status, (v)=>`updateReadingField('${sectionKey}','status',this.value)`, [
+              ['tested','Tested'], ['not-tested','Not Tested'], ['na','N/A']
+            ])}
+            ${readings.status === 'tested' ? `
+              <div class="grid-2">
+                ${textField(`${heading} Outdoor Temp (°F)`, readings.outdoorTemp, `updateReadingField('${sectionKey}','outdoorTemp',this.value)`, '95')}
+                ${textField(`${heading} Indoor Return Temp (°F)`, readings.indoorReturnTemp, `updateReadingField('${sectionKey}','indoorReturnTemp',this.value)`, '78')}
+                ${textField(`${heading} Indoor Supply Temp (°F)`, readings.indoorSupplyTemp, `updateReadingField('${sectionKey}','indoorSupplyTemp',this.value)`, '58')}
+                ${isCooling ? textField(`${heading} Suction Pressure (psig)`, readings.suctionPressure, `updateReadingField('${sectionKey}','suctionPressure',this.value)`, '125') : ''}
+                ${isCooling ? textField(`${heading} Liquid Pressure (psig)`, readings.liquidPressure, `updateReadingField('${sectionKey}','liquidPressure',this.value)`, '360') : ''}
+                ${isCooling ? textField(`${heading} Suction Line Temp (°F)`, readings.suctionLineTemp, `updateReadingField('${sectionKey}','suctionLineTemp',this.value)`, '52') : ''}
+                ${isCooling ? textField(`${heading} Liquid Line Temp (°F)`, readings.liquidLineTemp, `updateReadingField('${sectionKey}','liquidLineTemp',this.value)`, '103') : ''}
+                ${textField(`${heading} Selected Airflow (CFM)`, readings.cfm, `updateReadingField('${sectionKey}','cfm',this.value)`, '1200')}
+                ${textField(`${heading} Fan Speed / Tap`, readings.fanSpeed, `updateReadingField('${sectionKey}','fanSpeed',this.value)`, isCooling ? 'Cool Tap 3' : 'Heat Tap 2')}
+                ${textField(`${heading} Static Pressure (in. w.c.)`, readings.staticPressure, `updateReadingField('${sectionKey}','staticPressure',this.value)`, '0.48')}
+              </div>` : ''}
+          </div>
+        </div>`;
+    }
+
+    function textField(label, value, onchange, placeholder=''){
+      return `<div class="field"><label>${escapeHtml(label)}</label><input value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" onchange="${onchange}"></div>`;
+    }
+    function dateField(label, value, onchange){
+      return `<div class="field"><label>${escapeHtml(label)}</label><input type="date" value="${escapeHtml(value)}" onchange="${onchange}"></div>`;
+    }
+    function selectField(label, value, onchange, options){
+      return `<div class="field"><label>${escapeHtml(label)}</label>
+        <select onchange="${onchange}" >
+          ${options.map(([val,text]) => `<option value="${escapeHtml(val)}" ${val===value?'selected':''}>${escapeHtml(text)}</option>`).join('')}
+        </select></div>`;
+    }
+
+    function checklist(label, checked, key){
+      return `<button type="button" class="check ${checked ? 'done' : ''}" onclick="toggleField('${key}')"><span>${escapeHtml(label)}</span><span class="small" style="font-weight:700">${checked ? 'Done' : 'Open'}</span></button>`;
+    }
+
+    function metricCard(title, analysis){
+      const rating = getDeltaTRating(analysis.deltaT, analysis.targets.deltaT);
+      return `
+      <div class="metric">
+        <div class="label">Delta T</div>
+        <div class="value">${analysis.deltaT ?? '—'} <span style="font-size:1rem;font-weight:600;color:var(--muted)">°F</span></div>
+        <div class="target">Target: ${rangeText(analysis.targets.deltaT)}</div>
+        ${rating ? `<div class="rating ${rating.status}">${rating.label}</div>` : ''}
+      </div>`;
+    }
+
+    function exportPdf(){
+      try{
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: "pt", format: "letter" });
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 40;
+        let y = 42;
+
+        const coolingAnalysis = analyzeReadings(state.refrigerant, "cooling", state.cooling);
+        const heatingAnalysis = analyzeReadings(state.refrigerant, "heating", state.heating);
+
+        const ensureRoom = (needed = 30) => {
+          if (y > pageHeight - needed) { doc.addPage(); y = 42; }
+        };
+        const line = (label, value = "—", x = margin, valueX = x + 170) => {
+          ensureRoom(24);
+          doc.setFont("helvetica", "bold");
+          doc.text(`${label}:`, x, y);
+          doc.setFont("helvetica", "normal");
+          doc.text(String(value || "—"), valueX, y);
+          y += 18;
+        };
+        const sectionTitle = (title) => {
+          ensureRoom(44);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(13);
+          doc.text(title, margin, y);
+          y += 10;
+          doc.setLineWidth(0.6);
+          doc.line(margin, y, pageWidth - margin, y);
+          y += 18;
+          doc.setFontSize(10);
+        };
+        const wrappedBlock = (title, value) => {
+          sectionTitle(title);
+          const text = doc.splitTextToSize(String(value || "—"), pageWidth - margin * 2);
+          ensureRoom(text.length * 14 + 10);
+          doc.setFont("helvetica", "normal");
+          doc.text(text, margin, y);
+          y += text.length * 14 + 8;
+        };
+        const readingLines = (label, readings, deltaT) => {
+          sectionTitle(label);
+          line("Status", readings.status === "na" ? "N/A" : readings.status === "not-tested" ? "Not Tested" : "Tested");
+          if (readings.status !== "tested") return;
+          line("Outdoor Temp", readings.outdoorTemp ? `${readings.outdoorTemp} °F` : "—");
+          line("Indoor Return Temp", readings.indoorReturnTemp ? `${readings.indoorReturnTemp} °F` : "—");
+          line("Indoor Supply Temp", readings.indoorSupplyTemp ? `${readings.indoorSupplyTemp} °F` : "—");
+          line("Delta T", deltaT != null ? `${deltaT} °F` : "—");
+          if (label.toLowerCase().includes("cooling")) {
+            line("Suction Pressure", readings.suctionPressure ? `${readings.suctionPressure} psig` : "—");
+            line("Liquid Pressure", readings.liquidPressure ? `${readings.liquidPressure} psig` : "—");
+            line("Suction Line Temp", readings.suctionLineTemp ? `${readings.suctionLineTemp} °F` : "—");
+            line("Liquid Line Temp", readings.liquidLineTemp ? `${readings.liquidLineTemp} °F` : "—");
+          }
+          line("Selected Airflow", readings.cfm ? `${readings.cfm} CFM` : "—");
+          line("Fan Speed / Tap", readings.fanSpeed || "—");
+          line("Static Pressure", readings.staticPressure ? `${readings.staticPressure} in. w.c.` : "—");
+        };
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.text(state.companyName || "HVAC Field Visit Report", margin, y);
+        y += 24;
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Field Visit Report • ${state.companyPhone || ""}`, margin, y);
+        y += 22;
+
+        sectionTitle("Customer & Visit Info");
+        line("Customer Name", state.customerName); line("Phone", state.phone); line("Email", state.email);
+        line("Address", state.address); line("Visit Date", state.visitDate); line("Visit Type", state.visitType); line("Technician", state.technician);
+
+        sectionTitle("Equipment Information");
+        line("Equipment Brand", state.equipmentBrand); line("Model Number", state.equipmentModel); line("Serial Number", state.equipmentSerial);
+        line("Thermostat Model", state.thermostatModel); line("Filter Size", state.filterSize); line("Refrigerant", state.refrigerant);
+
+        readingLines("Cooling Readings", state.cooling, coolingAnalysis.deltaT);
+        readingLines("Heating Readings", state.heating, heatingAnalysis.deltaT);
+
+        sectionTitle("Furnace / Gas Setup");
+        line("Gas Pressure Low Fire", state.gasPressureLowFire ? `${state.gasPressureLowFire} in. w.c.` : "—");
+        line("Gas Pressure High Fire", state.gasPressureHighFire ? `${state.gasPressureHighFire} in. w.c.` : "—");
+
+        sectionTitle("Completion Checklist");
+        line("Drain Checked", state.drainChecked ? "Yes" : "No");
+        line("Condenser Level", state.condenserLevel ? "Yes" : "No");
+        line("Electrical Connections Tight", state.electricalTight ? "Yes" : "No");
+        line("Correct Filter Installed", state.filterInstalled ? "Yes" : "No");
+
+        wrappedBlock("Work Performed", state.workPerformed);
+        wrappedBlock("Issues Found", state.issuesFound);
+        wrappedBlock("Recommendations", state.recommendations);
+
+        sectionTitle("Sign Off");
+        line("Technician", state.technician);
+        line("Customer", "________________________________");
+
+        const safeName = (state.customerName || "customer").replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "");
+        const filename = `${safeName || "customer"}_${state.visitDate || "visit"}_field_report.pdf`;
+        doc.save(filename);
+        setMessage(`PDF export started: ${filename}`);
+      }catch(err){
+        console.error(err);
+        setMessage(`PDF export error: ${err?.message || 'Unknown error'}`);
+      }
+    }
+
+    function render(){
+      document.body.className = state.theme === "dark" ? "dark" : "";
+      const coolingAnalysis = analyzeReadings(state.refrigerant, "cooling", state.cooling);
+      const heatingAnalysis = analyzeReadings(state.refrigerant, "heating", state.heating);
+      const score = documentationScore(state);
+
+      document.getElementById('app').innerHTML = `
+        ${!installDismissed ? `
+        <div class="card"><div class="card-content banner">
+          <div>
+            <div style="font-weight:700">Install on iPad or phone</div>
+            <div class="muted small">${installPromptEvent ? 'Tap install to add this app to the home screen on supported devices.' : 'On iPhone or iPad, use Safari Share → Add to Home Screen. On other supported devices, use the install button when available.'}</div>
+          </div>
+          <div class="btn-row">
+            ${installPromptEvent ? `<button class="btn primary" onclick="installApp()">Install App</button>` : ''}
+            <button class="btn" onclick="dismissInstall()">Hide</button>
+          </div>
+        </div></div>` : ''}
+
+        ${actionMessage ? `<div class="card"><div class="card-content status-msg">${escapeHtml(actionMessage)}</div></div>` : ''}
+
+        <div class="hero">
+          <div>
+            <h1>HVAC Field Visit Report Builder</h1>
+            <div class="muted">Fill out the visit once, auto-save it on the device, then export a clean PDF report to upload into ServiceTitan.</div>
+          </div>
+          <div class="chips">
+            <div class="chip">Auto-Saves on Device</div>
+            <div class="chip">Install to Home Screen</div>
+            <button class="btn" onclick="toggleTheme()">${state.theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</button>
+          </div>
+        </div>
+
+        <div class="top-grid">
+          <div class="left">
+            <div class="card">
+              <div class="card-header"><div class="card-title">Customer & Visit Info</div></div>
+              <div class="card-content grid-2">
+                ${textField('Company Name', state.companyName, "updateField('companyName', this.value)")}
+                ${textField('Company Phone', state.companyPhone, "updateField('companyPhone', this.value)")}
+                ${textField('Customer Name', state.customerName, "updateField('customerName', this.value)")}
+                ${textField('Phone', state.phone, "updateField('phone', this.value)")}
+                ${textField('Email', state.email, "updateField('email', this.value)")}
+                ${dateField('Visit Date', state.visitDate, "updateField('visitDate', this.value)")}
+                <div class="field" style="grid-column:1/-1"><label>Address</label><input value="${escapeHtml(state.address)}" onchange="updateField('address', this.value)"></div>
+                ${selectField('Visit Type', state.visitType, "updateField('visitType', this.value)", [['new-install','New Install'],['check-clean','Check & Clean'],['service-call','Service Call'],['maintenance','Maintenance']])}
+                ${textField('Technician', state.technician, "updateField('technician', this.value)")}
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Equipment Information</div></div>
+              <div class="card-content grid-2">
+                ${textField('Equipment Brand', state.equipmentBrand, "updateField('equipmentBrand', this.value)")}
+                ${textField('Model Number', state.equipmentModel, "updateField('equipmentModel', this.value)")}
+                ${textField('Serial Number', state.equipmentSerial, "updateField('equipmentSerial', this.value)")}
+                ${textField('Thermostat Model', state.thermostatModel, "updateField('thermostatModel', this.value)")}
+                ${textField('Filter Size', state.filterSize, "updateField('filterSize', this.value)")}
+                ${selectField('Refrigerant', state.refrigerant, "updateField('refrigerant', this.value)", [['R-454B','R-454B'],['R-32','R-32']])}
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Heating + Cooling Startup Readings</div></div>
+              <div class="card-content"><div class="grid-2">
+                ${readingBlock('Cooling Readings', 'cooling', state.cooling, true)}
+                ${readingBlock('Heating Readings', 'heating', state.heating, false)}
+              </div></div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Furnace / Gas Setup</div></div>
+              <div class="card-content grid-2">
+                ${textField('Gas Pressure Low Fire', state.gasPressureLowFire, "updateField('gasPressureLowFire', this.value)")}
+                ${textField('Gas Pressure High Fire', state.gasPressureHighFire, "updateField('gasPressureHighFire', this.value)")}
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Completion Checklist</div></div>
+              <div class="card-content stack">
+                ${checklist('Drain checked', state.drainChecked, 'drainChecked')}
+                ${checklist('Condenser level', state.condenserLevel, 'condenserLevel')}
+                ${checklist('Electrical connections tight', state.electricalTight, 'electricalTight')}
+                ${checklist('Correct filter installed', state.filterInstalled, 'filterInstalled')}
+                <div class="field"><label>Work Performed</label><textarea onchange="updateField('workPerformed', this.value)" placeholder="What was completed during this visit (install steps, adjustments, etc.)">${escapeHtml(state.workPerformed)}</textarea></div>
+                <div class="field"><label>Issues Found</label><textarea onchange="updateField('issuesFound', this.value)" placeholder="Any problems, deficiencies, or concerns found">${escapeHtml(state.issuesFound)}</textarea></div>
+                <div class="field"><label>Recommendations</label><textarea onchange="updateField('recommendations', this.value)" placeholder="Recommended repairs, upgrades, or follow-up work">${escapeHtml(state.recommendations)}</textarea></div>
+                <div class="btn-row">
+                  <button class="btn primary" onclick="saveVisit()">Save Visit Snapshot</button>
+                  <button class="btn primary" onclick="exportPdf()">Export PDF Report</button>
+                  <button class="btn" onclick="clearSavedData()">Clear Saved Device Data</button>
+                  <button class="btn" onclick="clearRememberedDefaults()">Clear Remembered Defaults</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="right">
+            <div class="card">
+              <div class="card-header"><div class="card-title">Job Documentation Score</div></div>
+              <div class="card-content">
+                <div style="display:flex;align-items:flex-end;gap:10px">
+                  <div class="score">${score}</div><div class="muted">/100</div>
+                </div>
+                <div class="bar" style="margin-top:14px"><div class="bar-fill" style="width:${score}%"></div></div>
+                <div class="muted small" style="margin-top:12px">This score is based on how much of the form is filled out. Notes sections do not affect the score.</div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Cooling Summary</div></div>
+              <div class="card-content">${metricCard('Cooling Summary', coolingAnalysis)}</div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Heating Summary</div></div>
+              <div class="card-content">${metricCard('Heating Summary', heatingAnalysis)}</div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Recent Saved Visits on This Device</div></div>
+              <div class="card-content stack">
+                ${state.savedVisits.length === 0 ? `<div class="saved-item muted small">No saved visits yet. Tap “Save Visit Snapshot” after filling out the form.</div>` :
+                  state.savedVisits.map(visit => `
+                    <div class="saved-item">
+                      <div style="font-weight:700">${escapeHtml(visit.customerName)}</div>
+                      <div class="muted small" style="margin-top:4px">${escapeHtml(visit.address)}</div>
+                      <div class="muted small" style="margin-top:8px">${escapeHtml(visit.visitDate)} • ${escapeHtml(visit.visitType)} • ${escapeHtml(visit.equipmentModel)}</div>
+                      <div class="muted small" style="margin-top:8px">Score ${visit.score ?? '—'} • Cool: ${visit.coolingStatus === 'na' ? 'N/A' : (visit.coolingCfm ? `${escapeHtml(visit.coolingCfm)} CFM` : 'Not tested')} • Heat: ${visit.heatingStatus === 'na' ? 'N/A' : (visit.heatingCfm ? `${escapeHtml(visit.heatingCfm)} CFM` : 'Not tested')}</div>
+                      <div class="muted small" style="margin-top:8px">Cooling Fan: ${escapeHtml(visit.coolingFanSpeed || '—')} • Heating Fan: ${escapeHtml(visit.heatingFanSpeed || '—')}</div>
+                    </div>`).join('')
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    window.updateField = updateField;
+    window.updateReadingField = updateReadingField;
+    window.toggleField = toggleField;
+    window.saveVisit = saveVisit;
+    window.exportPdf = exportPdf;
+    window.clearSavedData = clearSavedData;
+    window.clearRememberedDefaults = clearRememberedDefaults;
+    window.toggleTheme = () => { state.theme = state.theme === 'dark' ? 'light' : 'dark'; saveState(); render(); };
+    window.dismissInstall = () => { installDismissed = true; setMessage("Install prompt hidden."); };
+    window.installApp = async () => {
+      if (!installPromptEvent) return;
+      await installPromptEvent.prompt();
+      installPromptEvent = null;
+      render();
+    };
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installPromptEvent = e;
+      render();
+    });
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+    }
+
+    render();
+  </script>
+</body>
+</html>
